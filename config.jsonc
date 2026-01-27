@@ -1,0 +1,11 @@
+{
+    "api_key": "", // the github api key
+    "repo_name": "", // the name of the repo
+    "repo_owner": "", // the name of the owner of the repo
+
+    "service_name": "", // the name of the service
+    "service_file_name": "", // the name of the kinesin file
+    "kill_switch_file_name": "", // the name of the kill switch file
+    "log_file_name": "", // the name of the file kinesin will log to
+    "base_directory": "" // the directory where the kinesin and log files will be
+}
