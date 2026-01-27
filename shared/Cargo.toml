@@ -1,5 +1,5 @@
 [package]
-name = "shared"
+name = "lib"
 edition = "2024"
 
 [dependencies]

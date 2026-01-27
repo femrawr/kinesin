@@ -142,6 +142,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lib"
+version = "0.0.0"
+dependencies = [
+ "aes-gcm",
+ "rand",
+ "sha2",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -231,15 +240,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
-]
-
-[[package]]
-name = "shared"
-version = "0.0.0"
-dependencies = [
- "aes-gcm",
- "rand",
- "sha2",
 ]
 
 [[package]]
