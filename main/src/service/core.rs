@@ -6,16 +6,18 @@ use windows_service::*;
 use windows_service::service::*;
 use windows_service::service_control_handler::*;
 
+use crate::core::handler::Github;
+
 use crate::service::events::*;
 use crate::service::utils::*;
 
 use crate::utils::logger;
-use crate::{config, handlers};
+use crate::config::*;
 
-const DEFAULT_WAIT: u64 = 10;
+const DEFAULT_WAIT: u64 = 25;
 
-fn service_loop() -> u64 {
-    logger::info("keep alive");
+fn service_loop(handler: &mut Github) -> u64 {
+    logger::info("service_loop: keep alive");
 
     DEFAULT_WAIT
 }
@@ -39,7 +41,7 @@ pub fn service_run(_args: Vec<OsString>) -> Result<()> {
         }
     };
 
-    let service_handler = service_control_handler::register(config::SERVICE_NAME, event_handler)?;
+    let service_handler = service_control_handler::register(get_config(SERVICE_NAME), event_handler)?;
 
     service_handler.set_service_status(ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
@@ -51,7 +53,7 @@ pub fn service_run(_args: Vec<OsString>) -> Result<()> {
         process_id: None
     })?;
 
-    // handlers::github::Github::new();
+    let mut github = Github::new();
 
     loop {
         if recv.try_recv().is_ok() && can_stop_service() {
@@ -59,7 +61,7 @@ pub fn service_run(_args: Vec<OsString>) -> Result<()> {
             break;
         }
 
-        let next_wait = service_loop();
+        let next_wait = service_loop(&mut github);
 
         thread::sleep(Duration::from_secs(next_wait));
     }

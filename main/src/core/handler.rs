@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -8,36 +7,25 @@ use base64::prelude::*;
 use reqwest::blocking::Client;
 use reqwest::header::{USER_AGENT, AUTHORIZATION};
 
-use crate::{config, store, funcs};
-use crate::utils::crypto;
+use crate::constants;
+use crate::config::*;
 
 pub struct Github {
+    client: Client,
     token: String,
     owner: String,
-    repo: String,
-    client: Client
+    repo: String
 }
 
 impl Github {
     pub fn new() -> Self {
-        let token = match crypto::decrypt(config::GITHUB_API_KEY, config::CRYPTO_KEY) {
-            Ok(token) => String::from_utf8_lossy(&token).into_owned(),
-            Err(_) => process::exit(0) // cmd func shutdown
-        };
-
-        let owner = match crypto::decrypt(config::GITHUB_OWNER, config::CRYPTO_KEY) {
-            Ok(owner) => String::from_utf8_lossy(&owner).into_owned(),
-            Err(_) => process::exit(0) // cmd func shutdown
-        };
-
-        let repo = match crypto::decrypt(config::GITHUB_REPO, config::CRYPTO_KEY) {
-            Ok(repo) => String::from_utf8_lossy(&repo).into_owned(),
-            Err(_) => process::exit(0) // cmd func shutdown
-        };
-
         let client = Client::new();
 
-        Self { token, owner, repo, client }
+        let token = get_config(GITHUB_API_KEY);
+        let owner = get_config(GITHUB_OWNER);
+        let repo = get_config(GITHUB_REPO);
+
+        Self { client, token, owner, repo }
     }
 
     fn get_url(&self) -> String {
@@ -58,7 +46,7 @@ impl Github {
         let res = self.client
             .get(&url)
             .header(AUTHORIZATION, self.get_auth())
-            .header(USER_AGENT, store::USER_AGENT)
+            .header(USER_AGENT, constants::USER_AGENT)
             .send()?;
 
         if res.status() == 404 {
@@ -79,7 +67,7 @@ impl Github {
         let res = self.client
             .get(&url)
             .header(AUTHORIZATION, self.get_auth())
-            .header(USER_AGENT, store::USER_AGENT)
+            .header(USER_AGENT, constants::USER_AGENT)
             .send()?;
 
         let json = res.json::<Value>()?;
@@ -113,7 +101,7 @@ impl Github {
         self.client
             .put(&url)
             .header(AUTHORIZATION, self.get_auth())
-            .header(USER_AGENT, store::USER_AGENT)
+            .header(USER_AGENT, constants::USER_AGENT)
             .json(&body)
             .send()?;
 
@@ -140,7 +128,7 @@ impl Github {
         self.client
             .delete(&url)
             .header(AUTHORIZATION, self.get_auth())
-            .header(USER_AGENT, store::USER_AGENT)
+            .header(USER_AGENT, constants::USER_AGENT)
             .json(&body)
             .send()?;
 

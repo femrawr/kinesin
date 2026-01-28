@@ -11,5 +11,5 @@ pub fn on_shutdown() -> ServiceControlHandlerResult {
 }
 
 pub fn on_stop() {
-    logger::warn("stopping");
+    logger::warn("on_stop: stopping");
 }
