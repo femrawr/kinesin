@@ -2,6 +2,8 @@ use std::env;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 
+use base64::prelude::*;
+
 pub struct Fingerprint {
     crypto_id: String,
     pc_name: String,
@@ -59,8 +61,10 @@ impl Fingerprint {
         );
 
         let hash = lib::hash::sha224_short(fingerprint.as_bytes());
-        String::from_utf8_lossy(&hash)
-            .into_owned()
+
+        BASE64_STANDARD
+            .encode(hash)
+            .replace("=", "")
             .to_uppercase()
     }
 
