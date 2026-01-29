@@ -1,0 +1,5 @@
+- make build ids all upperase
+- fix the initing
+- do the reading from control
+- add the executing commands
+- make the functions
