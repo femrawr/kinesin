@@ -9,9 +9,12 @@ use reqwest::header::{USER_AGENT, AUTHORIZATION};
 
 use crate::constants;
 use crate::config::*;
+use crate::core::state::State;
 
 pub struct Github {
     client: Client,
+    state: State,
+
     token: String,
     owner: String,
     repo: String
@@ -20,12 +23,13 @@ pub struct Github {
 impl Github {
     pub fn new() -> Self {
         let client = Client::new();
+        let state = State::new();
 
         let token = get_config(GITHUB_API_KEY);
         let owner = get_config(GITHUB_OWNER);
         let repo = get_config(GITHUB_REPO);
 
-        Self { client, token, owner, repo }
+        Self { state, client, token, owner, repo }
     }
 
     fn get_url(&self) -> String {
@@ -40,7 +44,7 @@ impl Github {
         format!("Bearer {}", self.token)
     }
 
-    fn get_file_hash(&self, file: &str) -> Result<Option<String>, Box<dyn Error>> {
+    pub fn get_file_hash(&self, file: &str) -> Result<Option<String>, Box<dyn Error>> {
         let url = format!("{}/{}", self.get_url(), file);
 
         let res = self.client
@@ -59,6 +63,14 @@ impl Github {
             .map(String::from);
 
         Ok(hash)
+    }
+
+    pub fn read_state(&self) -> &State {
+        &self.state
+    }
+
+    pub fn edit_state(&mut self) -> &mut State {
+        &mut self.state
     }
 
     pub fn read_file(&self, file: &str) -> Result<String, Box<dyn Error>> {
