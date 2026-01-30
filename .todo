@@ -3,3 +3,5 @@
 - do the reading from control
 - add the executing commands
 - make the functions
+- fix builder not skipping first line ; make it b64 idk
+- make script a 1 liner
